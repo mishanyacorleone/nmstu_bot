@@ -13,7 +13,7 @@ from rag import retrieve_documents
 import json
 
 
-MODEL_NAME = r'../RefalMachine_ruadapt_qwen2.5_3B_ext_u48_instruct'
+MODEL_NAME = r'microsoft/Phi-4-mini-instruct'
 TOKEN = ""
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode='HTML'))
 dp = Dispatcher()
@@ -30,14 +30,16 @@ quantization_config = BitsAndBytesConfig(
 )
 
 tokenizer = AutoTokenizer.from_pretrained(
-    MODEL_NAME,
+    'microsoft/Phi-4-mini-instruct',
     local_files_only=True,
+    trust_remote_code=True
 )
 
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME,
+    'microsoft/Phi-4-mini-instruct',
     quantization_config=quantization_config,
-    local_files_only=True
+    local_files_only=True,
+    trust_remote_code=True
 ).to(device)
 
 
@@ -59,14 +61,22 @@ async def handle_message(message: Message, model=model, tokenizer=tokenizer):
 
     await bot.send_chat_action(message.chat.id, 'typing')
 
-    retrieved_docs = await asyncio.to_thread(retrieve_documents, user_query, 3)
+    retrieved_docs = await asyncio.to_thread(retrieve_documents, user_query)
+
+    rag_response = ''
+    for elem in retrieved_docs:
+        print(f"С вероятностью: {elem['score']}\n"
+                f"Ответ содержится в следующем чанке (corpus_id={elem['corpus_id']}):\n"
+                f"{elem['candidate']}\n\n")
+
+        rag_response += f"{elem['candidate']}\n\n"
+
     # print(type(retrieved_docs))
     # print(retrieved_docs)
     # rag_response = '\n'.join([
     #     json.dumps(doc, ensure_ascii=False, indent=2) if isinstance(doc, dict) else str(doc)
     #     for doc in retrieved_docs
     # ])
-    rag_response = str(retrieved_docs)
     # print(rag_response)
 
     response = await asyncio.to_thread(generate_response, user_query, rag_response, model, tokenizer)
