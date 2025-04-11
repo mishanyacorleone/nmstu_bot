@@ -14,7 +14,7 @@ import json
 
 
 MODEL_NAME = r'../RefalMachine_ruadapt_qwen2.5_3B_ext_u48_instruct'
-TOKEN = "7605496089:AAE0-Xn_3jsw4yB0XZXzvPGGmyaf6x57Voc"
+TOKEN = ""
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode='HTML'))
 dp = Dispatcher()
 
