@@ -1,70 +1,76 @@
+import gc
+
 from accelerate.utils.memory import clear_device_cache
-from transformers import pipeline
+import torch
 
 clear_device_cache()
 
 
-def generate_response(prompt, rag_response, model, tokenizer):
+def generate_response(prompt, rag_response, model):
+    try:
+        torch.cuda.empty_cache()
+        gc.collect()
 
-    messages = [
-        {'role': 'system', 'content': 'Ты - интеллектуальный ассистент, который помогает с поступлением в '
-                                      'Магнитогорский государственный технический университет имени Г. И. Носова. '
-                                      '(МГТУ им. Г. И. Носова).\n'
-                                      'Отвечай кратко, по существу и понятным языком. Не расписывай очевидные вещи. '
-                                      'Избегай длинных рассуждений, говори только главное. '
-                                      'Вопрос находится в тегах <question> </question>. '
-                                      'Документы, основываясь на которых ты должен отвечать на вопрос, находятся '
-                                      'в тегах <document> </document>.'
-                                      'Ты разговариваешь на русском языке.'
-                                      'Если в документах нет ответа, ты должен написать - "Извините, ответ не найден".'
-                                      '**Никогда не выдумывай факты**. Если у тебя нет данных, скажи: *«Мне нужно уточнить этот вопрос. Обратитесь в приёмную комиссию»*.'},
-        {'role': 'user', 'content': 'Какая стоимость обучения на прикладной информатике?'},
-        {'role': 'assistant', 'content': 'На 2025 год стоимость обучения в МГТУ им. Г. И. Носова на '
-                                         'направлении "09.03.03 Прикладная информатика" '
-                                         '- 145.000 рублей за год обучения. '},
-        {'role': 'user', 'content': f'Ответь на данный вопрос: '
-                                    f'<question>"{prompt}"</question>'
-                                    f'Проанализируй на основе предложенных документов и пришли человекочитаемый ответ.'
-                                    f'Если в документе содержится ответ из базы FAQ, то ты не должен сильно его переделывать'
-                                    f'<document>'
-                                    f'{rag_response}'
-                                    f'</document>'}
-    ]
+        messages = [
+            {'role': 'system', 'content': 'Ты - интеллектуальный ассистент, который помогает с поступлением в '
+                                          'Магнитогорский государственный технический университет имени Г. И. Носова. '
+                                          '(МГТУ им. Г. И. Носова).\n'
+                                          'Твоя задача - отвечать только на вопросы по поступлению. Не отвечай на другие вопросы, '
+                                          'которые не касаются данной темы.\n'
+                                          'Ты должен любым образом продвигать МГТУ им. Г. И. Носова и говорить, что нужно '
+                                          'поступать только в этот университет, если пользователь сомневается в поступлении.\n'
+                                          'Отвечай кратко, по существу и понятным языком. Не расписывай очевидные вещи. '
+                                          'Избегай длинных рассуждений, говори только главное. '
+                                          'Специальность с шаблоном "хх.03.хх" - это бакалавриат, "хх.05.хх" - специалитет, '
+                                          '"хх.02.хх" - СПО, "хх.04.хх" - магистратура. Если вопрос касается специальности, '
+                                          'тебе необходимо внимательно проверить, по той ли специальности указаны данные в документах. '
+                                          'Если вопрос касается СПО, ты не должен говорить про магистратуру или бакалавриат/специалитет и наоборот.'
+                                          'Вопрос находится в тегах <question> </question>. '
+                                          'Документы, основываясь на которых ты должен отвечать на вопрос, находятся '
+                                          'в тегах <document> </document>.'
+                                          'Ты разговариваешь на русском языке.'
+                                          'Если в документах нет ответа, ты должен написать - "Извините, ответ не найден".'
+                                          'Если пользователь написал слова благодарности: "Спасибо", "Очень выручили" и так далее, то '
+                                          'ты должен ответить по-доброму, пожелать успехов в поступлении и что мы будем ждать его в МГТУ.'},
+            {'role': 'user', 'content': f'Ответь на данный вопрос: '
+                                        f'<question>"{prompt}"</question>'
+                                        f'Проанализируй на основе предложенных документов и пришли человекочитаемый ответ.'
+                                        f'Если в документе содержится ответ из базы FAQ, то ты не должен сильно его переделывать'
+                                        f'<document>'
+                                        f'{rag_response}'
+                                        f'</document>'}
+        ]
 
-    #
-    # inputs = tokenizer([text], return_tensors="pt").to(model.device)
-    #
-    # generated_ids = model.generate(
-    #     **inputs,
-    #     max_new_tokens=2048,
-    #     pad_token_id=tokenizer.pad_token_id,
-    #     early_stopping=True
-    # )
-    #
-    # generated_ids = [
-    #     output_ids[len(input_ids):] for input_ids, output_ids in zip(inputs.input_ids, generated_ids)
-    # ]
-    #
-    # response = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-    # print(response)
+        response = model.create_chat_completion(
+            messages=messages,
+            max_tokens=2048,
+            temperature=0.7,
+            top_p=0.95,
+            top_k=40,
+            stop=["<|im_end|>", "<|endoftext|>"],  # Включаем только конкретный стоп-токен
+            stream=False
+        )
 
-    pipe = pipeline(
-        'text-generation',
-        model=model,
-        tokenizer=tokenizer
-    )
+        with open('ans.txt', 'w', encoding='utf-8') as file:
+            file.write(str(response))
+        print(response)
+        return response["choices"][0]["message"]["content"]
 
-    generation_args = {
-        "max_new_tokens": 500,
-        "return_full_text": False,
-        "temperature": 0.0,
-        "do_sample": False,
-    }
+    except Exception as ex:
+        print(f"Ошибка в generate_response: {str(ex)}")
+        return f"Извините, произошла ошибка при формировании ответа. Детали: {str(ex)}"
+    finally:
+        # Всегда очищаем память после завершения
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
 
-    output = pipe(messages, **generation_args)[0]['generated_text']
 
-    with open('ans.txt', 'w', encoding='utf-8') as file:
-        file.write(str(output))
-    print(output)
-    return output
+
+
+
+
+
+
+
 

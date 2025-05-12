@@ -1,93 +1,98 @@
-import asyncio
-import os
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from transformers import BitsAndBytesConfig
-import torch
-from aiogram import Bot, Dispatcher
-from aiogram.types import Message
-from aiogram.filters import Command
-from aiogram.client.default import DefaultBotProperties
+import random
+import torch.cuda
+from fastapi import FastAPI, Request
+import httpx
+import uvicorn
+from llama_cpp import Llama
 from generator import generate_response
 from rag import retrieve_documents
-# from rag import get_response
-import json
+import os
+
+app = FastAPI()
+
+# Эти значения предоставлены Jivo
+current_dir = os.path.dirname(os.path.abspath(__file__))
+MODEL_NAME = os.path.join(current_dir, 'RefalMachine/ruadapt_qwen2.5_7B_ext_u48_instruct_gguf/Q4_K_M.gguf')
+BOT_TOKEN = "Замените на свой токен Telegram Bot"
+PROVIDER_ID = "Замените на свой Provider ID от Jivo"
+JIVO_API_URL = f"https://bot.jivosite.com/webhooks/{PROVIDER_ID}/{BOT_TOKEN}"
 
 
-MODEL_NAME = r'microsoft/Phi-4-mini-instruct'
-TOKEN = ""
-bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode='HTML'))
-dp = Dispatcher()
+@app.on_event("startup")
+async def startup_event():
+    global llm
+    # Инициализируем модель только один раз при запуске сервера
+    print(f"Загрузка модели из: {MODEL_NAME}")
+    llm = Llama(
+        model_path=MODEL_NAME,
+        n_ctx=8192,          # Размер контекста
+        n_gpu_layers=-1,     # Использовать все слои на GPU
+        seed=42,
+        verbose=False,
+        n_threads=4
+    )
+    print("Модель успешно загружена!")
 
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+@app.post("/jivo-webhook/7605496089:AAE0-Xn_3jsw4yB0XZXzvPGGmyaf6x57Voc")
+async def jivo_webhook(request: Request):
+    data = await request.json()
+    print("📥 Получено из Jivo:", data)
 
+    event_type = data.get("event")
 
-quantization_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_use_double_quant=True,
-    bnb_4bit_quant_type='nf4',
-    bnb_4bit_compute_dtype=torch.float16,
-)
+    # Обрабатываем только сообщения от клиента
+    if event_type != "CLIENT_MESSAGE":
+        return {"status": "ignored", "reason": f"Событие {event_type} не требует обработки"}
 
-tokenizer = AutoTokenizer.from_pretrained(
-    'microsoft/Phi-4-mini-instruct',
-    local_files_only=True,
-    trust_remote_code=True
-)
+    # Извлечение текста сообщения и ID чата
+    user_message = data.get("message", {}).get("text", "")
+    chat_id = data.get("chat_id")
+    client_id = data.get('client_id')
 
-model = AutoModelForCausalLM.from_pretrained(
-    'microsoft/Phi-4-mini-instruct',
-    quantization_config=quantization_config,
-    local_files_only=True,
-    trust_remote_code=True
-).to(device)
+    if user_message and chat_id:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
+        # Ответ от модели
+        retrieved_docs = retrieve_documents(user_message) # Поиск документов
 
-@dp.message(Command('start'))
-async def start_message(message: Message):
-    await message.answer('Привет! Я интеллектуальный помощник для помощи с поступлением в МГТУ! Ты можешь задать '
-                         'мне любой вопрос по поступлению и я на него отвечу. Если я не знаю ответа, '
-                         'ты можешь позвать оператора')
+        rag_response = ''
+        for elem in retrieved_docs:
+            print(f"С вероятностью: {elem['score']}\n"
+                  f"Ответ содержится в следующем чанке (corpus_id={elem['corpus_id']}):\n"
+                  f"{elem['candidate']}\n\n")
 
+            rag_response += f"{elem['candidate']}\n\n"
+        try:
+            response = generate_response(user_message, rag_response, llm)
+        except Exception as ex:
+            print(f"Ошибка при генерации ответа: {ex}")
+            response = "Извините, произошла ошибка при обработке вашего запроса. Попробуйте переформулировать вопрос или обратитесь позже."
 
-@dp.message(Command('operator'))
-async def start_message(message: Message):
-    await message.answer('Зову оператора!')
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
+        # Формируем ответ Jivo
+        payload = {
+            'id': str(random.randint(1, 10000000)),
+            "client_id": client_id,  # Client ID из события CLIENT_MESSAGE
+            'chat_id': chat_id, # Chat ID из события CLIENT_MESSAGE
+            "message": {
+                "type": "TEXT",
+                "text": response,
+            },
+            'event': 'BOT_MESSAGE'
+        }
 
-@dp.message()
-async def handle_message(message: Message, model=model, tokenizer=tokenizer):
-    user_query = message.text
+        # Отправка ответа в Jivo
+        async with httpx.AsyncClient() as client:
+            jivo_response = await client.post(JIVO_API_URL,
+                                              json=payload,
+                                              headers={"Content-Type": "application/json"})
+            print("📤 Ответ отправлен в Jivo:", jivo_response.text)
 
-    await bot.send_chat_action(message.chat.id, 'typing')
+    return {"status": "ok"}
 
-    retrieved_docs = await asyncio.to_thread(retrieve_documents, user_query)
-
-    rag_response = ''
-    for elem in retrieved_docs:
-        print(f"С вероятностью: {elem['score']}\n"
-                f"Ответ содержится в следующем чанке (corpus_id={elem['corpus_id']}):\n"
-                f"{elem['candidate']}\n\n")
-
-        rag_response += f"{elem['candidate']}\n\n"
-
-    # print(type(retrieved_docs))
-    # print(retrieved_docs)
-    # rag_response = '\n'.join([
-    #     json.dumps(doc, ensure_ascii=False, indent=2) if isinstance(doc, dict) else str(doc)
-    #     for doc in retrieved_docs
-    # ])
-    # print(rag_response)
-
-    response = await asyncio.to_thread(generate_response, user_query, rag_response, model, tokenizer)
-
-    await message.answer(response)
-
-
-async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
-
-
-if __name__ == '__main__':
-    asyncio.run(main())
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=False)

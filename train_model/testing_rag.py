@@ -43,7 +43,7 @@ import numpy as np
 import re
 
 # 1. Загрузка модели
-model = SentenceTransformer("../paraphrase-multilingual-MiniLM-L12-v2")
+model = SentenceTransformer("../sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 
 
 # 2. Чтение файла и разбиение на части
