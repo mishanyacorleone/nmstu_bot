@@ -28,8 +28,8 @@ from rag import retrieve_documents
 # Настройки
 current_dir = os.path.dirname(os.path.abspath(__file__))
 MODEL_NAME = os.path.join(current_dir, 'RefalMachine/ruadapt_qwen2.5_7B_ext_u48_instruct_gguf/Q4_K_M.gguf')
-BOT_TOKEN = "7845430145:AAEgWOV4ru46OtYZOo4b119jRFIgmWz4GaI"
-PROVIDER_ID = "MPGhfH1e1VjxxmK"
+BOT_TOKEN = "Замените на ваш токен Telegram"
+PROVIDER_ID = "Замените на ваш Provider ID"
 JIVO_API_URL = f"https://bot.jivosite.com/webhooks/{PROVIDER_ID}/{BOT_TOKEN}"
 
 # FAISS настройки
