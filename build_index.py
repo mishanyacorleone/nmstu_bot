@@ -9,8 +9,8 @@
 # spo_data = load_json("Приложения итог/Приложение №2 новое.json")
 # school_data = load_json("Приложения итог/Приложение №3 новое.json")
 # indiv_achievements = load_json("Приложения итог/Приложение №9.json")
-# pravila_chunks = load_json("data/pravila_chunks.json")
-# spec_chunks = load_json("data/spec_chunks.json")
+# pravila_chunks = load_json("data-older/pravila_chunks.json")
+# spec_chunks = load_json("data-older/spec_chunks.json")
 # result_marks = load_json('Приложения итог/Проходные баллы 2023-2024 год.json')
 # date_data = load_json('Приложения итог/Приложение №1.json')
 #
@@ -71,21 +71,21 @@
 
 import json
 import faiss
-import numpy as np
 from sentence_transformers import SentenceTransformer
 
 # === 1. Загрузка объединённого файла с документами ===
-with open("all_documents_for_faiss.json", "r", encoding="utf-8") as f:
+with open("data/all_documents_meta.json", "r", encoding="utf-8") as f:
     documents = json.load(f)
 
-texts = [doc['text'] for doc in documents]
+texts = [doc['summarize'] for doc in documents]
 
 # === 2. Создание эмбеддингов ===
-model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-mpnet-base-v2")
 embeddings = model.encode(texts, convert_to_numpy=True, show_progress_bar=True).astype("float32")
 
 # === 3. Создание FAISS-индекса ===
 dimension = embeddings.shape[1]
+
 index = faiss.IndexFlatIP(dimension)  # Используем cosine similarity с нормализованными векторами
 
 # Нормализуем вектора
@@ -95,7 +95,7 @@ faiss.normalize_L2(embeddings)
 index.add(embeddings)
 
 # === 4. Сохраняем индекс и метаинформацию ===
-faiss.write_index(index, "data/all_faiss_index.idx")
+faiss.write_index(index, "data-older/all_faiss_index.idx")
 
 with open("data/all_documents_meta.json", "w", encoding="utf-8") as f:
     json.dump(documents, f, ensure_ascii=False, indent=2)
